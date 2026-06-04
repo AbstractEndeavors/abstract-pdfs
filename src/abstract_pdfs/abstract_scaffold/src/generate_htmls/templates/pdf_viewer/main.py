@@ -14,9 +14,26 @@ def build_viewer_page(
     dirbase     = directory.name
     pdf_url     = manifest[0].get("schema", {}).get("url", "") or path_to_url(pdf_path)
     title       = humanize(dirbase)
+    pdf_path = pdf_path or safe_join_path(directory,f"{dirbase}.pdf")
+
+    # Document-level summary + merged keywords from the enrichment layer.
+    # Falls back to the manifest-derived values if enrichment is unavailable,
+    # so the viewer never ends up with the old static "Read X ..." description.
     description = extract_description(manifest)
     keywords    = ", ".join(extracted_keywords)
-    pdf_path = pdf_path or safe_join_path(directory,f"{dirbase}.pdf")
+    try:
+        doc = analyze_document(directory)
+        if doc.get("description"):
+            description = doc["description"]
+        doc_primary = (doc.get("keywords") or {}).get("primary") or []
+        if doc_primary:
+            extracted_keywords = doc_primary
+            keywords = (doc.get("keywords") or {}).get("meta_keywords") or ", ".join(doc_primary)
+    except Exception as exc:
+        import logging
+        logging.getLogger("abstract_pdf").warning(
+            "document-level enrichment failed for %s: %s", directory, exc
+        )
     pages_js = []
     for i, entry in enumerate(manifest, 1):
         thumb = verified_url(

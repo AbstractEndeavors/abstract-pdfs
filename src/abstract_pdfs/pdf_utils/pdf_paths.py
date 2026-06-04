@@ -67,14 +67,22 @@ def ensure_pdf_directory(
     return get_file_parts(new_pdf)
 
 
-def normalize_pdf_path(pdf_path):
+def normalize_pdf_path(pdf_path, move: bool = False):
     """
     Ensure the PDF lives inside a directory of the same name.
 
     If dirname == filename (already co-located):
         e.g. /docs/foo/foo.pdf  →  return as-is
     Otherwise:
-        create /dirname/filename/ and move the PDF there.
+        create /dirname/filename/ and place the PDF there.
+
+    Robustness (the source of the reported "moving the PDF usurps the whole
+    directory" failures):
+      * Non-destructive by default — copies rather than moves, so a failure in
+        a later stage can never strand or delete the source PDF.  Pass
+        ``move=True`` for the old behaviour.
+      * Idempotent — if the normalised PDF already exists it is reused instead
+        of raising a collision, so re-running a batch never blocks.
     """
     file_parts = get_file_parts(pdf_path)
     dirname  = file_parts.get("dirname")
@@ -87,14 +95,29 @@ def normalize_pdf_path(pdf_path):
         pdf_path = os.path.join(dirname, f"{dirbase}.pdf")
         return get_file_parts(pdf_path)
 
-    # Move into a new sibling directory named after the file.
+    # Place into a sibling directory named after the file.
     target_dir = os.path.join(dirname, name)
     new_pdf    = os.path.join(target_dir, basename)
+    os.makedirs(target_dir, exist_ok=True)
 
-    if not os.path.isdir(target_dir):
-        os.makedirs(target_dir, exist_ok=True)
+    src = os.path.abspath(str(pdf_path))
+    dst = os.path.abspath(str(new_pdf))
 
-    # BUG FIX: was `shutil.move(str(pdf), ...)` — `pdf` undefined.
-    shutil.move(str(pdf_path), str(new_pdf))
+    if src == dst:
+        return get_file_parts(dst)
 
-    return get_file_parts(str(new_pdf))
+    # Idempotent: a previously-normalised copy already there is good enough.
+    if os.path.isfile(dst) and os.path.getsize(dst) > 0:
+        if move and os.path.isfile(src):
+            try:
+                os.remove(src)
+            except OSError as exc:
+                logger.warning(f"normalize_pdf_path: could not remove source {src}: {exc}")
+        return get_file_parts(dst)
+
+    if move:
+        shutil.move(src, dst)
+    else:
+        shutil.copy2(src, dst)
+
+    return get_file_parts(dst)

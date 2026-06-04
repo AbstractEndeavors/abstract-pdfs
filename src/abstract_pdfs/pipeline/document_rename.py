@@ -8,15 +8,35 @@ def _zero_page(num: int, width: int = 3) -> str:
     return f"page_{str(num).zfill(width)}"
 
 
-def _safe_move(src: Path, dst: Path) -> None:
+def _safe_move(src: Path, dst: Path, *, strict: bool = False) -> bool:
+    """Move src→dst.  Returns True on (logical) success.
+
+    Collision policy (the fix for "one outlier usurps the whole directory"):
+      * src == dst                → no-op success.
+      * dst exists, same content  → treat as already-done success.
+      * dst exists, different      → skip and warn (or raise if ``strict``).
+    """
     if src == dst:
-        return
+        return True
     if dst.exists():
-        raise RuntimeError(f"Rename collision — destination exists: {dst}")
+        try:
+            same = src.exists() and dst.is_file() and src.is_file() and \
+                src.stat().st_size == dst.stat().st_size
+        except OSError:
+            same = False
+        if same:
+            # Destination already holds an identical file — consider it done.
+            return True
+        msg = f"Rename collision — destination exists: {dst}"
+        if strict:
+            raise RuntimeError(msg)
+        logger.warning(msg + " (skipping)")
+        return False
     shutil.move(str(src), str(dst))
+    return True
 
 
-def rename_collection(directory: str, slug: str) -> Path:
+def rename_collection(directory: str, slug: str, *, strict: bool = False) -> Path:
     """
     Rename every file inside a processed-PDF directory to carry `slug` as prefix,
     then rename the directory itself.
@@ -27,14 +47,21 @@ def rename_collection(directory: str, slug: str) -> Path:
       - Text files → {slug}_{page_NNN}{ext}
       - Files with no page number in their name are left untouched.
 
-    Returns the new directory path.
+    Robustness: by default this is *non-fatal* — a collision on a single file
+    (or on the destination directory) is logged and skipped rather than raised,
+    so one outlier PDF cannot abort an entire batch.  Pass ``strict=True`` to
+    restore hard failures.
+
+    Returns the resulting directory path (the new slug dir when the final move
+    succeeds, otherwise the original directory so callers still have a handle).
     """
     directory = Path(directory)
     parent    = directory.parent
     new_dir   = parent / slug
 
-    if new_dir.exists():
-        raise RuntimeError(f"Target directory already exists: {new_dir}")
+    # Already renamed (idempotent re-run) — nothing to do.
+    if new_dir.exists() and new_dir.resolve() == directory.resolve():
+        return new_dir
 
     pdf_file    = None
     image_files = []
@@ -52,28 +79,41 @@ def rename_collection(directory: str, slug: str) -> Path:
                 text_files.append(p)
 
     if not pdf_file:
-        raise RuntimeError(f"No PDF found in: {directory}")
+        if strict:
+            raise RuntimeError(f"No PDF found in: {directory}")
+        logger.warning(f"No PDF found in {directory}; leaving directory untouched")
+        return directory
 
     # PDF
-    _safe_move(pdf_file, pdf_file.with_name(f"{slug}.pdf"))
+    _safe_move(pdf_file, pdf_file.with_name(f"{slug}.pdf"), strict=strict)
 
     # Images
     for img in sorted(image_files):
         page = _detect_page_number(img.name)
         if page is None:
             continue
-        _safe_move(img, img.with_name(f"{slug}_{_zero_page(page)}{img.suffix}"))
+        _safe_move(img, img.with_name(f"{slug}_{_zero_page(page)}{img.suffix}"), strict=strict)
 
     # Text
     for txt in sorted(text_files):
         page = _detect_page_number(txt.name)
         if page is None:
             continue
-        _safe_move(txt, txt.with_name(f"{slug}_{_zero_page(page)}{txt.suffix}"))
+        _safe_move(txt, txt.with_name(f"{slug}_{_zero_page(page)}{txt.suffix}"), strict=strict)
 
-    # Directory last
-    _safe_move(directory, new_dir)
-    return new_dir
+    # Directory last.  If the slug dir already exists (a prior partial run, or a
+    # genuine name clash), don't raise — keep working in the existing directory.
+    if new_dir.exists():
+        if strict:
+            raise RuntimeError(f"Target directory already exists: {new_dir}")
+        logger.warning(
+            f"Target directory already exists: {new_dir} — keeping files in {directory}"
+        )
+        return directory
+
+    if _safe_move(directory, new_dir, strict=strict):
+        return new_dir
+    return directory
 
 
 # ---------------------------------------------------------------------------

@@ -7,18 +7,93 @@ def is_image(path):
     if ext in IMAGE_EXTS:
         return True
     return False
-def analyze_page(pdf_dir,page_index):
-    data={"text":get_text(pdf_dir,page_index),
-    "scope":f"page:{page_index}",
-    "summary_preset":"brief",         # one page ≠ article-length
-    "keyword_preset":"seo"}
-    return postRequest('https://clownworld.biz/hugpy/analyze/text',data=data)
-def refine_keywords(text, preset="seo"):
-    data={"text":text,"preset":preset}
-    return postRequest('https://clownworld.biz/hugpy/keybert/refine_keywords',data=data)
-def summarize(text, preset="article"):
-    data={"text":text,"preset":preset}
-    return postRequest('https://clownworld.biz/hugpy/summarizer/summarize',data=data)
+# ---------------------------------------------------------------------------
+# NLP enrichment — routed through abstract_pdfs.enrichment, which resolves
+# in-process abstract_hugpy -> HTTP service -> pure-stdlib local fallback.
+# Set ABSTRACT_HUGPY_MODE / ABSTRACT_HUGPY_URL / ABSTRACT_HUGPY_DESCRIBE to
+# control provider + vision behaviour, or pass `config`/`describe` explicitly.
+# (Previously these POSTed to a hard-coded clownworld.biz deployment that fed
+#  raw OCR straight into keywords/descriptions.)
+# ---------------------------------------------------------------------------
+from abstract_pdfs.enrichment import enrich_page as _enrich_page
+from abstract_pdfs.enrichment import enrich_document as _enrich_document
+from abstract_pdfs.enrichment.enrich import build_keyword_block as _build_keyword_block
+from abstract_pdfs.enrichment import providers as _providers
+from abstract_pdfs.enrichment import EnrichmentConfig as _EnrichmentConfig
+
+
+def _coerce_keyword_list(value):
+    """Return a flat list[str] of keywords from any of the shapes we encounter.
+
+    Accepts a list of strings, a list of (kw, score) tuples, a comma string, or
+    a rich keyword *object* (in which case we pull ``primary``).  Never returns
+    the object's dict keys.
+    """
+    if not value:
+        return []
+    if isinstance(value, str):
+        return [k.strip() for k in value.split(",") if k.strip()]
+    if isinstance(value, dict):
+        # rich keyword block -> its primary list
+        return _coerce_keyword_list(value.get("primary") or value.get("meta_keywords"))
+    out = []
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            out.append(item.strip())
+        elif isinstance(item, (tuple, list)) and item and isinstance(item[0], str):
+            out.append(item[0].strip())
+    return out
+
+
+def _section_from_path(pdf_path):
+    """Best-effort article section from the publish path.
+
+    e.g. .../pdfs/education/biology/Solutions_3/... -> "education".
+    Returns None when nothing sensible can be derived.
+    """
+    try:
+        parts = [p for p in str(pdf_path).replace("\\", "/").split("/") if p]
+        if "pdfs" in parts:
+            idx = parts.index("pdfs")
+            if idx + 1 < len(parts):
+                return parts[idx + 1].replace("_", " ").replace("-", " ").title()
+    except Exception:
+        pass
+    return None
+
+
+def analyze_page(pdf_dir, page_index, config=None, describe="__unset__"):
+    """Summary + SEO keywords (+ optional vision description) for one page."""
+    text = get_text(pdf_dir, page_index)
+    try:
+        image_path = get_thumbnail(pdf_dir, page_index)
+    except Exception:
+        image_path = None
+    return _enrich_page(
+        text,
+        image_path=image_path,
+        scope=f"page:{page_index}",
+        config=config,
+        describe=describe,
+    )
+
+
+def refine_keywords(text, preset="seo", config=None):
+    """Cleaned, junk-free keyword block for arbitrary text."""
+    cfg = _EnrichmentConfig.resolve(config)
+    cfg.keyword_preset = preset
+    provider = _providers.resolve_provider(cfg)
+    raw = provider.analyze(text or "", "full", cfg)
+    return _build_keyword_block(raw, text or "", cfg)
+
+
+def summarize(text, preset="article", config=None):
+    """Summarise arbitrary text via the resolved provider."""
+    cfg = _EnrichmentConfig.resolve(config)
+    cfg.summary_preset = preset
+    provider = _providers.resolve_provider(cfg)
+    raw = provider.analyze(text or "", "full", cfg)
+    return raw.summary
 
 def get_pdf_dir(pdf_dir):
     if os.path.isfile(pdf_dir):
@@ -56,12 +131,26 @@ def get_all_texts(pdf_dir):
 def get_full_text(pdf_dir):
     texts = get_all_texts(pdf_dir)
     return '\n'.join(texts)
+def analyze_document(pdf_dir, config=None, describe="__unset__"):
+    """Document-level summary + merged SEO keywords across all pages."""
+    pages = get_all_texts(pdf_dir)
+    cover = None
+    try:
+        cover = get_thumbnail(pdf_dir, 1)
+    except Exception:
+        cover = None
+    return _enrich_document(
+        pages,
+        config=config,
+        cover_image_path=cover,
+        describe=describe,
+    )
 def get_full_text_summary(pdf_dir):
-    all_text = get_full_text(pdf_dir)
-    return summarize(text, preset="article")
+    # BUG FIX: previously referenced an undefined `text` (NameError); the
+    # whole-document description silently fell back to a static string.
+    return analyze_document(pdf_dir).get("summary", "")
 def get_full_text_keywords(pdf_dir):
-    text = get_full_text(pdf_dir)
-    return refine_keywords(text, preset="seo")
+    return analyze_document(pdf_dir).get("keywords", {})
 def get_text_path(pdf_dir,i):
     texts_dir = get_texts_dir(pdf_dir)
     page_num_str = get_page_num_str(i)
@@ -130,8 +219,10 @@ def get_page_data(i,pdf_path,media_root=None,site_root=None):
     text_page_url = path_to_url(text_page_path,media_root,site_root)
     text_page_text = read_from_file(text_page_path)
     analyze_result = analyze_page(pdf_path, i)
-    text_summary = analyze_result.get("summary")          # short paragraph
-    keywords = analyze_result.get("keywords",{}).get("primary") # keywords relevant to that page
+    keywords_block = analyze_result.get("keywords", {}) or {}
+    # Prefer the vision/summary description over raw OCR.
+    text_summary = analyze_result.get("description") or analyze_result.get("summary") or ""
+    keywords = _coerce_keyword_list(keywords_block.get("primary"))  # flat list of strings
     domain = site_root.split('://')[1]
     site_name = '.'.join(domain.split('.')[:-1])
     json_data={}
@@ -146,13 +237,19 @@ def get_page_data(i,pdf_path,media_root=None,site_root=None):
     page_data['domain']=[domain]
     page_data['variants']=[site_root]
     page_data['text'] = text_page_text
-    page_data['description'] = json_data.get('description',text_summary)
-    page_data['keywords'] = json_data.get('keywords',keywords)
+    page_data['description'] = json_data.get('description') or text_summary
+    # BUG FIX: a previously-written info.json could carry `keywords` as the
+    # nested keyword *object*; `','.join(dict)` then emitted its *keys*
+    # ("density,density_flags,dropped,..."). Always coerce to a flat string list.
+    page_data['keywords'] = _coerce_keyword_list(json_data.get('keywords')) or keywords
     page_data['creator'] = site_name
     page_data['author'] = f'@{site_name}'
     page_data['site'] = site_root
     page_data['site_name'] = site_name
-    page_data['keywords_str']= ','.join(page_data['keywords'])
+    # Prefer the cleaned meta_keywords string from the enrichment block.
+    page_data['keywords_str'] = keywords_block.get("meta_keywords") or ','.join(page_data['keywords'])
+    # Derive an article section from the path instead of the hardcoded "Health".
+    page_data['section'] = _section_from_path(pdf_path) or page_data.get('section')
     
     meta = get_meta_info(info=page_data)
     page_data["page_url"] = thumbnail_html_url

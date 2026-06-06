@@ -144,6 +144,112 @@ def assure_image_html(pdf_path, page_number):
 
 
 # ---------------------------------------------------------------------------
+# Document-level meta (whole-PDF summary + merged keywords)
+# ---------------------------------------------------------------------------
+
+def _collect_page_texts(pdf_path):
+    pages_dir = get_pages_dir_from_pdf_path(pdf_path)
+    texts = []
+    if not os.path.isdir(pages_dir):
+        return texts
+    for name in sorted(os.listdir(pages_dir)):
+        tp = os.path.join(pages_dir, name, "text.txt")
+        if os.path.isfile(tp):
+            content = read_from_file(tp)
+            if isinstance(content, str) and content.strip():
+                texts.append(content)
+    return texts
+
+
+def assure_doc_meta(pdf_path, *, force=False, config=None, describe="__unset__"):
+    """
+    Build the document-level meta/ (whole-PDF summary + merged keywords).
+
+    Writes meta/info.json (scope "full") and meta/metadata.json (the SEO/OG
+    bundle the viewer reads).  Routed through the enrichment layer so keywords
+    are junk-filtered and the description is real — never the empty "/None"
+    the older pipeline produced.  Fully guarded: a failure here must not stop
+    the run.
+    """
+    pdf_dir = os.path.dirname(pdf_path)
+    meta_dir = os.path.join(pdf_dir, "meta")
+    os.makedirs(meta_dir, exist_ok=True)
+    info_path = os.path.join(meta_dir, "info.json")
+    meta_path = os.path.join(meta_dir, "metadata.json")
+
+    if not force and os.path.isfile(info_path) and os.path.isfile(meta_path):
+        return safe_load_from_json(meta_path)
+
+    texts = _collect_page_texts(pdf_path)
+
+    # --- cleaned document-level summary + keywords -------------------------
+    doc = {"summary": "", "description": "", "keywords": {"primary": [], "meta_keywords": ""}}
+    try:
+        from abstract_pdfs.enrichment import enrich_document
+        cover = get_page_image_path_from_pdf_path(pdf_path, 1)
+        cover = cover if os.path.isfile(cover) else None
+        doc = enrich_document(texts, cover_image_path=cover, config=config, describe=describe)
+    except Exception as exc:
+        logger.warning(f"doc-level enrichment failed for {pdf_dir}: {exc}")
+
+    keywords_block = doc.get("keywords", {}) or {}
+    primary = list(keywords_block.get("primary") or [])
+    summary = doc.get("description") or doc.get("summary") or ""
+
+    # --- meta/info.json (scope "full") -------------------------------------
+    safe_dump_to_json(
+        data={
+            "scope": "full",
+            "summary": doc.get("summary", ""),
+            "description": summary,
+            "keywords": keywords_block,
+            "text": doc.get("text", ""),
+        },
+        file_path=info_path,
+    )
+
+    # --- meta/metadata.json (SEO/OG bundle the viewer consumes) ------------
+    try:
+        pdf_title = get_pdf_title_from_pdf_path(pdf_path, 1)
+    except Exception:
+        pdf_title = os.path.basename(pdf_dir).replace("_", "-")
+    try:
+        cover_url = path_to_url(get_page_image_path_from_pdf_path(pdf_path, 1))
+    except Exception:
+        cover_url = ""
+    href = path_to_url(pdf_dir)
+
+    metadata = None
+    try:
+        # Prefer the full OG/Twitter builder for parity with per-page metadata.
+        metadata = get_page_data(
+            title=f"{pdf_title} | Home",
+            href=href,
+            summary=summary,
+            keywords=primary,
+            keywords_str=", ".join(primary),
+            thumbnail_url=cover_url,
+        )
+    except Exception as exc:
+        logger.warning(f"doc-level metadata builder unavailable ({exc}); writing minimal meta")
+        metadata = {
+            "title": f"{pdf_title} | Home",
+            "summary": summary,
+            "description": summary,
+            "keywords": primary,
+            "canonical": href,
+            "thumbnail": cover_url,
+            "thumbnail_resized": cover_url,
+            "thumbnail_url_resized": cover_url,
+        }
+    # Ensure the fields the viewer reads are always present.
+    metadata.setdefault("summary", summary)
+    metadata.setdefault("keywords", primary)
+    safe_dump_to_json(data=metadata, file_path=meta_path)
+    return metadata
+
+
+# ---------------------------------------------------------------------------
 # Per-page worker (the unit of work submitted to the pool)
 # ---------------------------------------------------------------------------
 
@@ -203,8 +309,13 @@ def process_pdf(pdf_path, max_workers=4):
                 logger.error(f"page {page_num}/{total_pages} failed: {exc}")
 
     # ------------------------------------------------------------------
-    # fan-in: gallery + viewer require all pages to be on disk
+    # fan-in: document-level meta, then gallery + viewer (all need every
+    # page on disk).  Doc meta is best-effort — never let it abort the run.
     # ------------------------------------------------------------------
+    try:
+        assure_doc_meta(pdf_path)
+    except Exception as exc:
+        logger.warning(f"assure_doc_meta failed for {pdf_path}: {exc}")
     get_gallery_page(pages_dir)
     get_viewer_page(pdf_path)
 

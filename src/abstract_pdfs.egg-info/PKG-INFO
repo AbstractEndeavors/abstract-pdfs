@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: abstract_pdfs
-Version: 0.0.33
+Version: 0.0.35
 Summary: A structured pipeline for transforming PDFs into **searchable, metadata-rich, web-ready content**, combining OCR, page-level analysis, metadata generation, and static site scaffolding.
 Home-page: https://github.com/AbstractEndeavors/abstract_pdfs
 Author: putkoff
@@ -30,9 +30,16 @@ Dynamic: requires-dist
 Dynamic: requires-python
 Dynamic: summary
 
----
+## Part of the Abstract Intelligence Platform
 
-# 🔹 🔧 REWRITTEN README (ABSTRACT_PDFS — SYSTEM LEVEL)
+This module is part of a unified system for transforming raw media into structured, searchable, and SEO-optimized data.
+
+abstract_pdfs handles document ingestion and publishing:
+- PDF → structured pages (text + images)
+- metadata + manifest generation
+- static HTML output (viewer + gallery)
+
+Full system: https://github.com/AbstractEndeavors/abstract-intelligence
 
 ---
 
@@ -86,7 +93,21 @@ HTML Generation
     ↓
 Static Site Output (SEO-ready)
 ```
+```mermaid
+flowchart TD
+    A[PDF Input]
+    B[DocumentPipeline]
+    C[SliceManager\nPage Images + Text + OCR]
+    D[Per-Page Assets\nThumbnails / Text / Info JSON]
+    E[Manifest Generation\nPage + Document Metadata]
+    F[NLP Enrichment\nSummaries + Keywords + Descriptions]
+    G[HTML Generation\nViewer Pages + Gallery Indexes]
+    H[Static Output\nSearchable / SEO-ready PDF Corpus]
 
+    A --> B --> C --> D --> E --> F --> G --> H
+
+
+```
 ---
 
 ## 🔹 Core Capabilities

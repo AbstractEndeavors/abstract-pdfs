@@ -42,6 +42,11 @@ src/abstract_pdfs/abstract_scaffold/src/generate_htmls/templates/pdf_viewer/__in
 src/abstract_pdfs/abstract_scaffold/src/generate_htmls/templates/pdf_viewer/imports.py
 src/abstract_pdfs/abstract_scaffold/src/generate_htmls/templates/pdf_viewer/main.py
 src/abstract_pdfs/abstract_scaffold/src/generate_htmls/templates/pdf_viewer/main2.py
+src/abstract_pdfs/enrichment/__init__.py
+src/abstract_pdfs/enrichment/config.py
+src/abstract_pdfs/enrichment/enrich.py
+src/abstract_pdfs/enrichment/providers.py
+src/abstract_pdfs/enrichment/quality.py
 src/abstract_pdfs/imports/__init__.py
 src/abstract_pdfs/imports/classes.py
 src/abstract_pdfs/imports/constants.py
@@ -65,3 +70,4 @@ src/abstract_pdfs/pipeline/__init__.py
 src/abstract_pdfs/pipeline/document_rename.py
 src/abstract_pdfs/pipeline/imports.py
 tests/test.py
+tests/test_enrichment.py

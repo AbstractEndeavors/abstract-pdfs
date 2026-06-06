@@ -6,20 +6,58 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # Filesystem helpers
 # ---------------------------------------------------------------------------
 
-def assure_pdf_dir(pdf_path):
+def assure_pdf_dir(pdf_path, move: bool = False):
+    """
+    Guarantee the PDF lives inside a directory of the same stem, returning that
+    directory.
+
+    Non-destructive by default: the source PDF is *copied* into the per-document
+    directory rather than moved, so a failure in any later stage can never
+    strand or lose the original, and a batch can't be wrecked by one outlier.
+
+      * Idempotent — if the destination PDF already exists it is reused instead
+        of re-copying, so re-running never collides.
+      * Pass ``move=True`` for the old move-in-place behaviour.
+    """
     path_parts = get_path_parts(pdf_path)
     basename = path_parts.get('basename')
-    dirbase = path_parts.get('dirbase')
-    dirname = path_parts.get('dirname')
+    dirbase  = path_parts.get('dirbase')
+    dirname  = path_parts.get('dirname')
     filename = path_parts.get('filename')
-    if dirbase != filename:
-        pdf_dir = os.path.join(dirname, filename)
-        os.makedirs(pdf_dir, exist_ok=True)
-        nupdf_path = os.path.join(pdf_dir, basename)
-        if not os.path.isfile(nupdf_path):
-            shutil.move(pdf_path, nupdf_path)
+
+    # Already co-located in a same-name directory — nothing to do.
+    if dirbase == filename:
+        return dirname
+
+    pdf_dir = os.path.join(dirname, filename)
+    os.makedirs(pdf_dir, exist_ok=True)
+    nupdf_path = os.path.join(pdf_dir, basename)
+
+    src = os.path.abspath(pdf_path)
+    dst = os.path.abspath(nupdf_path)
+
+    if src == dst:
+        return pdf_dir
+
+    # Idempotent: a previously-placed copy already there is good enough.
+    if os.path.isfile(dst) and os.path.getsize(dst) > 0:
+        if move and os.path.isfile(src):
+            try:
+                os.remove(src)
+            except OSError as exc:
+                logger.warning(f"assure_pdf_dir: could not remove source {src}: {exc}")
+        return pdf_dir
+
+    if not os.path.isfile(src):
+        # Source already gone (e.g. moved by a prior run) but no dest — nothing
+        # we can safely do; return the dir so callers still have a handle.
+        logger.warning(f"assure_pdf_dir: source PDF missing: {src}")
+        return pdf_dir
+
+    if move:
+        shutil.move(src, dst)
     else:
-        pdf_dir = dirname
+        shutil.copy2(src, dst)
     return pdf_dir
 
 

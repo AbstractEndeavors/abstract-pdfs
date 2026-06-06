@@ -98,7 +98,10 @@ def generate_pdf_page_manifest(
     base_url=None,
     pdfs_public_url=None,
     write=True,
-    overwrite=False
+    overwrite=False,
+    enrich=True,
+    enrich_config=None,
+    describe="__unset__"
     ):
         page_num = get_page_num(page_i)
         page_str = get_page_str(page_i)
@@ -143,6 +146,33 @@ def generate_pdf_page_manifest(
         except ValueError:
             thumb_url = base_url.rstrip("/") + f"/pdfs/{filename}/thumbnails/{page_tag}.png"
 
+        # NLP enrichment — clean keywords + summary/description (optionally a
+        # vision caption when OCR is poor).  Falls back silently to the simple
+        # frequency keywords if the enrichment layer is unavailable.
+        description = ""
+        summary = ""
+        ocr_quality = 0.0
+        if enrich and longdesc:
+            try:
+                from abstract_pdfs.enrichment import enrich_page
+                img_arg = thumb_abs if get_pathlib_path(thumb_path).exists() else None
+                enriched = enrich_page(
+                    longdesc,
+                    image_path=img_arg,
+                    scope=f"page:{int(page_num)}",
+                    config=enrich_config,
+                    describe=describe,
+                )
+                kb = enriched.get("keywords", {}) or {}
+                meta_kw = kb.get("meta_keywords")
+                if meta_kw:
+                    keywords = meta_kw
+                description = enriched.get("description") or ""
+                summary = enriched.get("summary") or ""
+                ocr_quality = enriched.get("ocr_quality") or 0.0
+            except Exception as e:
+                logger.warning(f"page enrichment failed for {page_tag}: {e}")
+
         social = SocialMeta(
             og_image      = thumb_url,
             og_image_alt  = thumb_url,
@@ -150,7 +180,7 @@ def generate_pdf_page_manifest(
         )
         page_url   = base_url.rstrip("/") + dir_path
         alt = f"{page_tag} | page {page_num} | {pdfs_public_url}"
-        caption = f"{filename}.pdf page {page_num}"
+        caption = description or f"{filename}.pdf page {page_num}"
         title = f"{filename}.pdf_page_{page_num}"
         schema = {"name": page_tag, "url": pdfs_public_url}
         entry =PdfPageManifestEntry(
@@ -164,6 +194,9 @@ def generate_pdf_page_manifest(
             dimensions   = {"width": w, "height": h},
             file_size    = round(get_pathlib_path(thumb_path).stat().st_size / 1_048_576, 3) if get_pathlib_path(thumb_path).exists() else 0.0,
             longdesc     = longdesc,
+            description  = description,
+            summary      = summary,
+            ocr_quality  = ocr_quality,
             schema       = schema,
             social_meta  = social.to_dict(),
             text_path    = str(txt_file),
@@ -185,7 +218,10 @@ def generate_pdf_manifest(
     media_root: Path | None = None,
     pdfs_public_url: Path | None = None,
     write=True,
-    overwrite=False
+    overwrite=False,
+    enrich=True,
+    enrich_config=None,
+    describe="__unset__"
 ) -> list[PdfPageManifestEntry]:
     """
     Build a manifest entry per PDF page.
@@ -239,11 +275,38 @@ def generate_pdf_manifest(
             base_url=base_url,
             pdfs_public_url=pdfs_public_url,
             write=write,
-            overwrite=overwrite
+            overwrite=overwrite,
+            enrich=enrich,
+            enrich_config=enrich_config,
+            describe=describe,
             )
         entries.append(entry)
     if HAS_FITZ:
         doc.close()
+
+    # Document-level aggregation: one summary + merged keyword set across all
+    # pages, written to {pdf_dir}/document.json so the viewer/gallery don't
+    # have to re-derive a description from raw page-1 OCR.
+    if enrich:
+        try:
+            from abstract_pdfs.enrichment import enrich_document
+            page_texts = [e.longdesc for e in entries if getattr(e, "longdesc", "")]
+            cover = entries[0].image_path if entries else None
+            doc_result = enrich_document(
+                page_texts,
+                config=enrich_config,
+                cover_image_path=cover,
+                describe=describe,
+            )
+            doc_result["title"] = filename.replace("_", " ").replace("-", " ").title()
+            doc_result["pdf_url"] = pdfs_public_url
+            if write:
+                safe_dump_to_json(
+                    data=doc_result,
+                    file_path=safe_join_path(pdf_dir, "document.json"),
+                )
+        except Exception as e:
+            logger.warning(f"document-level enrichment failed for {filename}: {e}")
 
     return entries
 

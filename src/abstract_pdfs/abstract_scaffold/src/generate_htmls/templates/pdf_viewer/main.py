@@ -22,7 +22,14 @@ def build_viewer_page(
     description = extract_description(manifest)
     keywords    = ", ".join(extracted_keywords)
     try:
-        doc = analyze_document(directory)
+        # Prefer the cached document.json written during manifest generation;
+        # only recompute if it is absent.
+        doc = {}
+        doc_json = safe_join_path(directory, "document.json")
+        if os.path.isfile(str(doc_json)):
+            doc = safe_load_from_json(str(doc_json)) or {}
+        if not doc:
+            doc = analyze_document(directory)
         if doc.get("description"):
             description = doc["description"]
         doc_primary = (doc.get("keywords") or {}).get("primary") or []

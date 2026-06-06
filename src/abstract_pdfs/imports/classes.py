@@ -107,6 +107,9 @@ class PdfPageManifestEntry:
     license:      str = "CC BY-SA 4.0"
     attribution:  str = ATTRIBUTION
     longdesc:     str = ""
+    description:  str = ""
+    summary:      str = ""
+    ocr_quality:  float = 0.0
     schema:       dict[str, Any] = field(default_factory=dict)
     social_meta:  dict[str, str] = field(default_factory=dict)
     text_path:    str = ""

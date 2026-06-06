@@ -78,7 +78,8 @@ def assure_info_from_pdf_path(pdf_path, page_number):
     info_path = get_page_info_path_from_pdf_path(pdf_path, page_number)
     if pdf_page_needs_info(info_path):
         logger.info(f"analyzing page {page_number}")
-        info = analyze_page(text=text, page_index=page_number)
+        image_path = get_page_image_path_from_pdf_path(pdf_path, page_number)
+        info = analyze_page(text=text, page_index=page_number, image_path=image_path)
         safe_dump_to_json(data=info.to_dict(), file_path=info_path)
         metadata_path = get_page_meta_path_from_pdf_path(pdf_path, page_number)
         if os.path.isfile(metadata_path):

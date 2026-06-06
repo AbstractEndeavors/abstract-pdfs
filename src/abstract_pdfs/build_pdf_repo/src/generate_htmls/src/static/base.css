@@ -1,0 +1,36 @@
+/* RESET */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ROOT THEME */
+:root {
+  --bg: #0d0d0d;
+  --bg-card: #1a1a1a;
+  --text: #e0e0e0;
+  --text-muted: #777;
+  --text-soft: #aaa;
+  --border: #2e2e2e;
+  --accent: #f0f0f0;
+}
+
+/* GLOBAL */
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  padding: 2rem 1rem;
+  line-height: 1.5;
+}
+
+/* LINKS */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+a:hover {
+  color: white;
+}

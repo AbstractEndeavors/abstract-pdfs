@@ -1,0 +1,43 @@
+{# gallery.html.j2 — Gallery index for a branch directory #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ page_title }} | thedailydialectics</title>
+  <link rel="canonical" href="{{ canonical_url }}">
+  <link rel="stylesheet" href="/assets/css/base.css">
+  <link rel="stylesheet" href="/assets/css/layout.css">
+  <link rel="stylesheet" href="/assets/css/components.css">
+</head>
+<body>
+  <nav class="breadcrumb">{{ breadcrumbs }}</nav>
+  <h1>{{ heading }}</h1>
+  <p class="summary">{{ card_count }} item{{ "s" if card_count != 1 else "" }}</p>
+  <div class="grid">
+  {%- for card in cards %}
+    <a class="card" href="{{ card.href }}">
+    {%- if card.image_url %}
+      <img src="{{ card.image_url }}" alt="{{ card.title }}" loading="lazy">
+    {%- endif %}
+      <div class="card-body">
+        <span class="card-title">{{ card.title }}</span>
+      {%- if card.description %}
+        <span class="card-desc">{{ card.description }}</span>
+      {%- endif %}
+      {%- if card.tags %}
+        <div class="card-tags">
+        {%- for tag in card.tags %}
+          <span class="card-tag">{{ tag }}</span>
+        {%- endfor %}
+        </div>
+      {%- endif %}
+      {%- if card.page_count %}
+        <span class="card-meta">{{ card.page_count }} pages</span>
+      {%- endif %}
+      </div>
+    </a>
+  {%- endfor %}
+  </div>
+</body>
+</html>

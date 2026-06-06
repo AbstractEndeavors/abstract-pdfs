@@ -4,7 +4,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 setuptools.setup(
     name='abstract_pdfs',
-    version='0.0.35',
+    version='0.0.36',
     author='putkoff',
     author_email='partners@abstractendeavors.com',
     description='A structured pipeline for transforming PDFs into **searchable, metadata-rich, web-ready content**, combining OCR, page-level analysis, metadata generation, and static site scaffolding.',

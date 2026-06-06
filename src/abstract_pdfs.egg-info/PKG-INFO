@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: abstract_pdfs
-Version: 0.0.35
+Version: 0.0.36
 Summary: A structured pipeline for transforming PDFs into **searchable, metadata-rich, web-ready content**, combining OCR, page-level analysis, metadata generation, and static site scaffolding.
 Home-page: https://github.com/AbstractEndeavors/abstract_pdfs
 Author: putkoff

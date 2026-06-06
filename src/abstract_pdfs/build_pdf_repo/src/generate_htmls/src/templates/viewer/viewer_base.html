@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "viewer/meta.html" %}
+
+  <link rel="stylesheet" href="{{ viewer_css_url or '/assets/css/pdf-viewer/viewer.css' }}">
+
+  {% if viewer_theme_vars %}
+  <style>
+    :root {
+      {{ viewer_theme_vars | safe }}
+    }
+  </style>
+  {% endif %}
+</head>
+<body>
+  <script>
+    window.__VIEWER_CONFIG__ = {{ viewer_config_json | safe }};
+  </script>
+
+  {% include "viewer/body.html" %}
+
+  <script src="{{ viewer_js_url or '/assets/js/pdf-viewer/page-viewer.js' }}" defer></script>
+</body>
+</html>

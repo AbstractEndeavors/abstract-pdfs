@@ -1,0 +1,39 @@
+{# image_page.html.j2 — Single image page for a leaf dir with info.json #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  {{metadata}}
+  <script type="application/ld+json">{{ schema_json }}</script>
+  <link rel="stylesheet" href="/assets/css/base.css">
+  <link rel="stylesheet" href="/assets/css/layout.css">
+  <link rel="stylesheet" href="/assets/css/components.css">
+  <link rel="stylesheet" href="/assets/css/pages/image-page.css">
+</head>
+<body>
+  <nav class="breadcrumb">{{ breadcrumbs }}</nav>
+  <div class="container">
+    <h1>{{ title }}</h1>
+  {%- if img_url %}
+    <div class="img-wrap"><img src="{{ img_url }}" alt="{{ alt }}"></div>
+  {%- endif %}
+    <p class="caption">{{ alt }}</p>
+  {%- if description %}
+    <p class="description">{{ description }}</p>
+  {%- endif %}
+  {%- if keyword_tags %}
+    <div class="tags">
+    {%- for kw in keyword_tags %}
+      <span class="tag">{{ kw }}</span>
+    {%- endfor %}
+    </div>
+  {%- endif %}
+    <div class="meta-row">
+    {%- if license %} License: {{ license }}{% endif %}
+    {%- if attribution %} · {{ attribution }}{% endif %}
+    {%- if img_url %} · <a href="{{ img_url }}" target="_blank">Full image</a>{% endif %}
+    </div>
+  </div>
+</body>
+</html>
